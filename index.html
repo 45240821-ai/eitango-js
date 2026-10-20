@@ -469,15 +469,3 @@ function render(){
   else { view = 'home'; app.innerHTML = homeView(); }
   window.scrollTo(0, 0);
 }
-document.addEventListener('keydown', e => {
-  if(view !== 'test' || !S.ses) return;
-  const ses = S.ses;
-  if(ses.ph === 'q' && ['1','2','3','4'].includes(e.key)){ choose(ses.cur.opts[Number(e.key)-1]); }
-  else if((e.key === 'Enter' || e.key === ' ') && ses.ph === 'fb'){ e.preventDefault(); next(); }
-  else if(e.key === 'Enter' && ses.ph === 'br'){ cont(); }
-});
-applyBg();
-render();
-</script>
-</body>
-</html>
