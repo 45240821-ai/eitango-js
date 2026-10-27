@@ -668,11 +668,14 @@ const exEx = r => JSON.stringify(r.examples.map(e=>({t:e.t, q:e.q, choices:e.cho
 const FMT = '[{"t":"mc","q":"問題文","choices":["①の内容","②の内容","③の内容","④の内容"],"a":1,"exp":"解説","topic":"小単元","fig":false,"from":"似せた例題の番号"}]';
 function promptDef(){
   return 'あなたは大学入学共通テスト対策の学習コーチです。添付したPDFを読み、次の2点を整理してください。\n'
-  + '(1) 範囲：どの科目・単元を扱うか\n(2) 例題：PDFに載っている例題（問題文・選択肢・正解・解説）\n\n'
+    + '(1) 範囲：どの科目・単元を扱うか\n(2) 例題：PDFに載っている大問1〜7のすべての問題（小問も省略せず全部。問題文・選択肢・正解・解説）\n\n'
   + '次のJSONだけを、コードブロックで出力してください（説明文は不要）。数式は読みやすいプレーンテキスト（x^2、√3、½ など）で書いてください。\n'
   + '{"title":"範囲の名前","subject":"科目","scope":"範囲の説明（2〜3文）","topics":["小単元1","小単元2"],"level":"例題の難しさの特徴（共通テストの標準／やや難、理由つき）",'
   + '"examples":[{"t":"mc","q":"問題文","choices":["①の内容","②の内容","③の内容","④の内容"],"a":1,"exp":"解説"}]}\n'
-  + '・a は正解の番号（1始まり）\n・選択式でない問題は {"t":"free","q":"問題文","choices":[],"a":"模範解答","exp":"解説"} の形にする';
+  + '・a は正解の番号（1始まり）\n・選択式でない問題は {"t":"free","q":"問題文","choices":[],"a":"模範解答","exp":"解説"} の形にする'  + '・a は正解の番号（1始まり）\n・選択式でない問題は {"t":"free","q":"問題文","choices":[],"a":"模範解答","exp":"解説"} の形にする'
+  + '\n・大問1〜7の小問を、ひとつも省略せず、先頭から順にすべて examples に入れる\n・各 q の先頭に【大問1 問1】のように大問番号と小問番号を付ける'
+  + '\n・大問に共通の本文・資料・図表がある場合は、各小問の q の先頭に省略せず書く（図表は言葉で説明する）'
+  + '\n・正解がPDFにない場合は自分で解いて決め、exp の先頭に「正解は推定」と書く\n・出力が長くなっても途中で止めず、最後まで出す';
 }
 function exCond(r, n){
   const have = r.qs.slice(-30).map(q=>q.q.replace(/\s+/g,' ').slice(0,24)).join(' / ') || 'なし';
@@ -782,7 +785,7 @@ function exAutoDef(ev){
   if(f.size > 25*1024*1024){ exMsg('PDFが大きすぎます（25MBまで）'); return; }
   exAuto('PDFを読み取り中', async ()=>{
     const b64 = await new Promise((ok, ng)=>{ const fr = new FileReader(); fr.onload = ()=>ok(String(fr.result).split(',')[1]); fr.onerror = ()=>ng(new Error('PDFを読めませんでした')); fr.readAsDataURL(f); });
-    const text = await callClaude([{type:'document', source:{type:'base64', media_type:'application/pdf', data:b64}}, {type:'text', text:promptDef()}], 8000);
+    const text = await callClaude([{type:'document', source:{type:'base64', media_type:'application/pdf', data:b64}}, {type:'text', text:promptDef()}], 16000);
     const r = importDef(text);
     exv.msg = '範囲「' + r.title + '」を作りました（例題 ' + r.examples.length + '問）。次は類題を作ります';
     exOpen(r.id);
