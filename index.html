@@ -828,7 +828,7 @@ document.addEventListener('keydown', e=>{
    「依頼文の作成」「返ってきたJSONの取り込み」「出題・採点・苦手管理」を担当します */
 const EXS = () => S.ex || (S.ex = {ranges:[]});
 let exv = {rid:null, ses:null, msg:'', n:10, confirmDel:false, from:'ex', sub:'数学ⅡBC', big:7, padOpen:null, padTall:false, incScr:true};
-exv.n = 2;
+exv.n = 2; exv.bp = 0;
 const CIRC = ['①','②','③','④','⑤','⑥'];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 const exRange = id => EXS().ranges.find(r=>r.id===id);
@@ -984,7 +984,7 @@ function promptExamples(r){
 function exCond(r, n){
   const have = [...new Set(r.qs.slice(-40).map(q=>(q.gt || q.q).replace(/\s+/g,' ').slice(0,24)))].slice(-12).join(' / ') || 'なし';
   return '条件：\n・共通テストと同じ「大問」の形で作る。大問を' + n + '個作り、1つの大問に、共通の本文・資料・図表の説明（passage）と、それに答える小問（qs）を、例題と同じ数だけ入れる\n'
-   + '・範囲全体と大問表から偏りなく選び、同じ大問番号に偏らない。title には「大問1　○○」のように大問番号と主題を書く\n'
+   + '' + (exv.bp ? '・大問' + exv.bp + 'の内容・形式だけで作る（大問表の「大問' + exv.bp + '」の範囲）\n' : '・範囲全体と大問表から偏りなく選び、同じ大問番号に偏らない。') + 'title には「大問1　○○」のように大問番号と主題を書く\n'
    + '・各大問の小問は、前の小問の結果を後の小問で使うなど、共テらしく誘導つきにする\n'
    + '・難易度は例題と同程度にそろえる（易しくも難しくもしない）\n・小問はすべて選択式（選択肢は4つ、正解は1つ）\n'
    + '・' + subjNote(r.subject) + '\n・すでにある問題と重複しない（既出：' + have + '）\n'
@@ -1008,6 +1008,18 @@ function promptReview(r, q, ans){
 /* ----- 画面の操作 ----- */
 function exMsg(text, id){ const m = document.getElementById(id || 'exmsg'); if(m) m.textContent = text; }
 function exCopy(text, id){ copyText(text, ok => exMsg(ok ? 'コピーしました。Claudeのチャットに貼り付けてね' : 'コピーできませんでした', id)); }
+const SUBJ_LIST = ['数学ⅠA','数学ⅡBC','物理','化学','英語'];
+const fixedRange = s => EXS().ranges.find(r=>r.fixed === s);
+function exOpenSubj(s){
+  let r = fixedRange(s);
+  if(!r){
+    const o = subjOf(s), big = o.big || 0;
+    r = {id:uid(), fixed:s, title:s + '（共通テスト）', subject:s, big, scope:'共通テスト「' + s + '」の出題範囲（大問' + big + '個。範囲は固定）',
+      topics:(o.outline || '').split('\n').filter(Boolean), level:'', examples:[], qs:[], status:'active'};
+    EXS().ranges.push(r); save();
+  }
+  exv.sub = s; exv.bp = 0; exOpen(r.id);
+}
 function exSubChange(s){ exv.sub = s; exv.big = subjOf(s).big || 0; const b = document.getElementById('exbig'); if(b) b.value = exv.big || ''; exMsg(subjOf(s).hint || '', 'exsubnote'); }
 function exGenCopy(weak){ const r = exRange(exv.rid); if(!r.examples.length){ exMsg('先に例題を読み込んでください'); return; } exCopy(weak ? promptWeak(r, exv.n) : promptGen(r, exv.n)); }
 function exOpen(id){ exv.rid = id; exv.confirmDel = false; view = 'exr'; render(); }
@@ -1311,26 +1323,19 @@ function exHomeView(){
   ${m ? `<div class="card"><b>${esc(m)}</b></div>` : ''}
   <div class="card">
     <h2>流れ</h2>
-    <ol class="steps"><li>PDFから範囲を作る（Claudeに読んでもらう）</li><li>範囲ごとに類題を作る（Claudeが作る）</li><li>ここで演習。間違えた問題は苦手に</li><li>苦手テストで克服。苦手から新しい類題をまた作る</li></ol>
+    <ol class="steps"><li>科目を選ぶ（範囲は共通テストの出題範囲で固定）</li><li>例題のPDFを読み込む（この難しさが基準）</li><li>Claudeが、例題と同じ難しさの大問を作る</li><li>解く（手書きメモあり）。間違えた問題は苦手に、手書きからミスを分析</li></ol>
   </div>
   <div class="card">
-    <h2>① 範囲を作る（範囲のPDF）</h2>
-    <div class="sub">科目を選んで、範囲のPDFをClaudeに読んでもらいます。例題は、範囲を作ったあとに別のPDFで読み込みます。</div>
-    <div class="row" style="margin:10px 0;align-items:center">
-      <select class="inp" style="width:auto" id="exsub" onchange="exSubChange(this.value)">${Object.keys(SUBJ).filter(s=>s!=='数学').map(s=>`<option ${exv.sub===s?'selected':''}>${s}</option>`).join('')}</select>
-      <span class="note">大問数</span><input class="inp" id="exbig" type="number" min="0" max="12" style="width:5em" value="${exv.big || ''}" oninput="exv.big=Number(this.value)||0">
-    </div>
-    <p class="note" id="exsubnote">${esc(subjOf(exv.sub).hint || '')}</p>
-    <div class="row" style="margin:6px 0"><button class="btn primary" onclick="exCopy(promptScope(exv.sub, exv.big))">依頼文をコピー</button><button class="btn" onclick="document.getElementById('expdf').click()">PDFを選んで自動で作る</button></div>
-    <input id="expdf" type="file" accept="application/pdf" hidden onchange="exAutoDef(event)"><p class="note" id="exmsg"></p>
-    <textarea class="inp" id="exdef" rows="4" placeholder="ClaudeのJSONの返信をここに貼り付け"></textarea>
-    <div style="height:8px"></div><button class="btn block" onclick="exImportDef()">範囲を作る</button>
+    <h2>① 科目を選ぶ</h2>
+    <div class="sub">共通テストの出題範囲（大問表）は、アプリに入っていて固定です。科目を選んで、例題のPDFを読み込むと、その難しさで類題を作ります。</div>
+    <div class="opts" style="margin-top:10px">${SUBJ_LIST.map(s=>{ const r = fixedRange(s), c = r ? exCounts(r) : null;
+      return `<button class="opt" onclick="exOpenSubj('${s}')"><span class="t"><b>${s}</b>　大問${subjOf(s).big}個<br><span class="w">${c ? '例題' + r.examples.length + '問・問題' + c.n + '問・苦手' + c.weak + '問' : 'はじめる'}</span></span></button>`; }).join('')}</div>
   </div>
   <div class="card">
     <h2>演習する</h2>
     <div class="row"><button class="btn primary" ${left?'':'disabled'} onclick="exStart('range',null)">進行中の範囲からランダム（${left}問）</button><button class="btn" ${weak?'':'disabled'} onclick="exStart('weak',null)">苦手テスト（${weak}問）</button></div>
   </div>
-  <div class="card"><h2>進行中の範囲</h2>${act.length ? act.map(card).join('') : '<p class="note">まだ範囲がありません。①から作ってください。</p>'}</div>
+  <div class="card"><h2>進行中の範囲</h2>${act.length ? act.map(card).join('') : '<p class="note">まだありません。①で科目を選んでください。</p>'}</div>
   ${done.length ? `<div class="card"><h2>終了した範囲</h2>${done.map(card).join('')}</div>` : ''}`;
 }
 function exRangeView(r){
@@ -1354,7 +1359,7 @@ function exRangeView(r){
     ${r.status==='done' ? `<p class="note">この範囲は終了しました。もう一度出す場合は「もう一周」、新しい類題を足すと自動で再開します。</p><button class="btn block" onclick="exReset(exRange('${r.id}'))">もう一周する</button>` : ''}
   </div>
   <div class="card">
-    <h2>② 例題を読み込む（例題のPDF）</h2>
+    <h2>① 例題を読み込む（例題のPDF）</h2>
     <div class="sub">いま例題は${r.examples.length}問です。PDFごとに追加できます。類題の難しさは、この例題が基準になります。</div>
     <div class="row" style="margin:10px 0"><button class="btn primary" onclick="exCopy(promptExamples(exRange('${r.id}')), 'exmsg2')">依頼文をコピー</button><button class="btn" onclick="document.getElementById('exexpdf').click()">PDFを選んで自動で追加</button></div>
     <input id="exexpdf" type="file" accept="application/pdf" hidden onchange="exAutoEx(event)"><p class="note" id="exmsg2"></p>
@@ -1362,8 +1367,9 @@ function exRangeView(r){
     <div style="height:8px"></div><button class="btn block" onclick="exImportEx()">例題を取り込む</button>
   </div>
   <div class="card">
-    <h2>③ 類題を作る（Claude）</h2>
-    <div class="sub">例題と同じ難易度で、この範囲の類題を作ってもらいます。</div>
+    <h2>② 類題を作る（Claude）</h2>
+    <div class="sub">例題と同じ難易度で、共通テスト形式の大問を作ってもらいます。</div>
+    ${r.big > 1 ? `<div class="row" style="margin-top:8px;align-items:center"><span class="note">出題する大問</span><select class="inp" style="width:auto" onchange="exv.bp=Number(this.value)"><option value="0" ${!exv.bp ? 'selected' : ''}>すべて（偏りなく）</option>${Array.from({length:r.big}, (_, i)=>`<option value="${i + 1}" ${exv.bp === i + 1 ? 'selected' : ''}>大問${i + 1}だけ</option>`).join('')}</select></div>` : ''}
     <div class="row" style="margin:10px 0;align-items:center"><select class="inp" style="width:auto" onchange="exv.n=Number(this.value)">${sel}</select>
       <button class="btn primary" onclick="exGenCopy(false)">類題の依頼文をコピー</button>
       <button class="btn" ${c.weak?'':'disabled'} onclick="exGenCopy(true)">苦手から類題</button></div>
