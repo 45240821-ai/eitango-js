@@ -1199,24 +1199,32 @@ let API = (function(){
   return {key:'', model:'claude-sonnet-5-5'};
 })();
 function saveApi(){ try{ localStorage.setItem(API_STORE, JSON.stringify(API)); }catch(e){} }
-async function callClaude(content, maxTokens){
+async function callClaude(content, maxTokens, noThink, retry){
   if(!API.key) throw new Error('APIキーが未設定です');
+  const body = {model:API.model, max_tokens:maxTokens || 8000, messages:[{role:'user', content}]};
+  if(!noThink) body.thinking = {type:'disabled'};          // 考える時間で出力枠を使い切らないように
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{'content-type':'application/json', 'x-api-key':API.key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true'},
-    body: JSON.stringify({model:API.model, max_tokens:maxTokens || 8000, messages:[{role:'user', content}]})
+    body: JSON.stringify(body)
   });
   const data = await res.json().catch(()=>({}));
-  if(!res.ok) throw new Error((data.error && data.error.message) || ('エラー ' + res.status));
+  if(!res.ok){
+    const msg = (data.error && data.error.message) || ('エラー ' + res.status);
+    if(!noThink && /thinking/i.test(msg)) return callClaude(content, maxTokens, true, retry);   // thinking指定を受け付けないモデル
+    throw new Error(msg);
+  }
   API.lastStop = data.stop_reason || '';
   API.lastText = (data.content || []).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+  if(!API.lastText.trim() && API.lastStop === 'max_tokens' && !retry && (maxTokens || 8000) < 32000)
+    return callClaude(content, Math.min(32000, (maxTokens || 8000) * 2), noThink, true);   // 空のまま上限 → 枠を広げて1回だけやり直す
   return API.lastText;
 }
 function pasteErr(nj){ const r = nj ? '貼り付けた内容にJSON（{ や [ で始まるデータ）が見つかりませんでした。先頭：「' + String(nj).replace(/\s+/g,' ').slice(0,60) + '」。' : '読み取れませんでした。'; NOJSON = ''; return r + 'Claudeの返信のJSON部分（コードブロックの中）をそのまま貼ってください'; }
 function friendlyErr(e){
   const m = String(e && e.message ? e.message : e), l = m.toLowerCase();
   let why = '';
-  if(l.includes('no json')){ const sn = (NOJSON || API.lastText || '').replace(/\s+/g, ' ').slice(0, 220); return '失敗しました：Claudeの返事にJSON（データ）が含まれていませんでした。' + (sn ? '返事の内容：「' + sn + '」' : '返事が空でした' + (API.lastStop ? '（終了理由：' + API.lastStop + '）' : '')) + '。PDFが読めていない、または内容の書き出しを断られた可能性があります。PDFを小さく分けるか、チャットのClaudeで依頼文を使ってください'; }
+  if(l.includes('no json')){ const sn = (NOJSON || API.lastText || '').replace(/\s+/g, ' ').slice(0, 220); return '失敗しました：Claudeの返事にJSON（データ）が含まれていませんでした。' + (sn ? '返事の内容：「' + sn + '」' : '返事が空でした' + (API.lastStop === 'max_tokens' ? '（出力の上限に達しました。PDFのページ数を減らすか、大問の数を減らしてください）' : (API.lastStop ? '（終了理由：' + API.lastStop + '）' : ''))) + '。PDFが読めていない、または内容の書き出しを断られた可能性があります。PDFを小さく分けるか、チャットのClaudeで依頼文を使ってください'; }
   if(l === 'json' || l.includes('json')) why = 'Claudeの返事を読み取れませんでした（出力が長すぎて途中で切れた可能性があります）。PDFを少ない範囲に分けるか、問題数を減らしてもう一度試してください';
   else if(l.includes('failed to fetch') || l.includes('networkerror') || l.includes('load failed')) why = '通信できませんでした。①claude.aiの公開ページ内では使えません（ファイルやGitHubのリンクから開いてください）②ネットワークを確認してください';
   else if(l.includes('too large') || l.includes('413') || l.includes('request_too_large') || l.includes('exceed')) why = 'PDFが大きすぎます。20MB以下・100ページ以下に分けてください';
